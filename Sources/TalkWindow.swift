@@ -6,7 +6,13 @@ import AVFoundation
 
 // MARK: - Text view
 
-final class TalkTextView: NSTextView {
+/// The parts of the font panel jtalk2 accepts. Its colour and effect controls
+/// would fight with View ▸ Text Color, which owns the colours here. The panel
+/// asks whichever of the first responder and the font manager's target answers
+/// first, so both of them do.
+private let fontPanelModes: NSFontPanel.ModeMask = [.collection, .face, .size]
+
+final class TalkTextView: NSTextView, NSFontChanging {
     var onSpeak: (() -> Void)?
     var onCancel: (() -> Void)?
     var onKeyDown: (() -> Void)?
@@ -34,14 +40,19 @@ final class TalkTextView: NSTextView {
     override func cancelOperation(_ sender: Any?) {
         onCancel?()
     }
+
+    func validModesForFontPanel(_ fontPanel: NSFontPanel) -> NSFontPanel.ModeMask {
+        fontPanelModes
+    }
 }
 
 // MARK: - Controller
 
-final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation {
+final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidation, NSFontChanging {
     private static let voiceKey = "VoiceIdentifier"
     private static let rateKey = "SpeechRate"
     private static let fontSizeKey = "FontSize"
+    private static let fontNameKey = "FontName"
     private static let keyClickKey = "KeyClick"
     private static let textColorKey = "TextColor"
     private static let backgroundColorKey = "BackgroundColor"
@@ -118,7 +129,7 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
 
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.font = NSFont.systemFont(ofSize: Self.savedFontSize)
+        textView.font = Self.savedFont
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainerInset = NSSize(width: 6, height: 8)
@@ -328,7 +339,7 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         }
     }
 
-    // MARK: Font size
+    // MARK: Font
 
     private static let defaultFontSize: CGFloat = 24
 
@@ -336,20 +347,85 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     /// from readable to very large does not take twenty keystrokes.
     private static let fontSizes: [CGFloat] = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 80, 96, 144, 288]
 
-    private static var savedFontSize: CGFloat {
-        guard UserDefaults.standard.object(forKey: fontSizeKey) != nil else { return defaultFontSize }
-        let saved = CGFloat(UserDefaults.standard.double(forKey: fontSizeKey))
-        return min(max(saved, fontSizes.first!), fontSizes.last!)
+    private static func clampFontSize(_ size: CGFloat) -> CGFloat {
+        min(max(size, fontSizes.first!), fontSizes.last!)
     }
 
-    /// Point size of the message box. Setting it saves immediately.
-    var fontSize: CGFloat {
-        get { textView.font?.pointSize ?? Self.defaultFontSize }
+    private static var savedFontSize: CGFloat {
+        guard UserDefaults.standard.object(forKey: fontSizeKey) != nil else { return defaultFontSize }
+        return clampFontSize(CGFloat(UserDefaults.standard.double(forKey: fontSizeKey)))
+    }
+
+    /// The system fonts name themselves with a leading dot — ".AppleSystemUIFont",
+    /// ".SFNS-Regular" — and macOS will not hand those back through
+    /// NSFont(name:): asking gives Times New Roman. Such a name is therefore
+    /// kept as "no typeface chosen" rather than saved.
+    private static func isSystemFontName(_ name: String) -> Bool { name.hasPrefix(".") }
+
+    /// The typeface and size the message box opens in. A saved name that no
+    /// longer resolves — a font the user has since removed — falls back to the
+    /// system font rather than leaving the window unreadable.
+    private static var savedFont: NSFont {
+        let size = savedFontSize
+        guard let name = UserDefaults.standard.string(forKey: fontNameKey),
+              !isSystemFontName(name),
+              let font = NSFont(name: name, size: size)
+        else { return .systemFont(ofSize: size) }
+        return font
+    }
+
+    /// The same typeface at another size.
+    private static func resize(_ font: NSFont, to size: CGFloat) -> NSFont {
+        guard size != font.pointSize else { return font }
+        return NSFont(descriptor: font.fontDescriptor, size: size) ?? .systemFont(ofSize: size)
+    }
+
+    /// Typeface and size together, as the font panel hands them over. Setting
+    /// it saves immediately.
+    var font: NSFont {
+        get { textView.font ?? .systemFont(ofSize: Self.defaultFontSize) }
         set {
-            let size = min(max(newValue, Self.fontSizes.first!), Self.fontSizes.last!)
-            textView.font = NSFont.systemFont(ofSize: size)
+            let size = Self.clampFontSize(newValue.pointSize)
+            let font = Self.resize(newValue, to: size)
+            textView.font = font
             UserDefaults.standard.set(Double(size), forKey: Self.fontSizeKey)
+            if Self.isSystemFontName(font.fontName) {
+                UserDefaults.standard.removeObject(forKey: Self.fontNameKey)
+            } else {
+                UserDefaults.standard.set(font.fontName, forKey: Self.fontNameKey)
+            }
         }
+    }
+
+    /// Point size of the message box, keeping whatever typeface is in use.
+    /// Setting it saves immediately.
+    var fontSize: CGFloat {
+        get { font.pointSize }
+        set { font = Self.resize(font, to: Self.clampFontSize(newValue)) }
+    }
+
+    /// The standard font panel, opened on the font in use.
+    @objc func showFontPanel() {
+        let manager = NSFontManager.shared
+        manager.target = self
+        manager.setSelectedFont(font, isMultiple: false)
+        manager.orderFrontFontPanel(self)
+    }
+
+    /// The panel reports its choice here rather than to the text view, so the
+    /// choice can be saved and clamped to the size ladder.
+    func changeFont(_ sender: NSFontManager?) {
+        guard let sender else { return }
+        font = sender.convert(font)
+    }
+
+    func validModesForFontPanel(_ fontPanel: NSFontPanel) -> NSFontPanel.ModeMask {
+        fontPanelModes
+    }
+
+    /// Back to the system typeface, at whatever size is in use.
+    @objc func resetFont() {
+        font = .systemFont(ofSize: fontSize)
     }
 
     @objc func increaseFontSize() {

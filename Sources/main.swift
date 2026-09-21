@@ -81,6 +81,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             viewMenu.addItem(item)
         }
         viewMenu.addItem(.separator())
+        let fonts = NSMenuItem(title: "Show Fonts…",
+                               action: #selector(TalkWindowController.showFontPanel),
+                               keyEquivalent: "t")
+        fonts.keyEquivalentModifierMask = [.command]
+        fonts.target = target
+        viewMenu.addItem(fonts)
+        let defaultFont = NSMenuItem(title: "Default Font",
+                                     action: #selector(TalkWindowController.resetFont),
+                                     keyEquivalent: "")
+        defaultFont.target = target
+        viewMenu.addItem(defaultFont)
+        viewMenu.addItem(.separator())
         for (title, selector) in [
             ("Text Color…", #selector(TalkWindowController.chooseTextColor)),
             ("Background Color…", #selector(TalkWindowController.chooseBackgroundColor)),

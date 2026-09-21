@@ -79,9 +79,9 @@ sized.decreaseFontSize()
 check(sized.fontSize == 12, "stepping down from a rung lands on the one below (got \(sized.fontSize))")
 
 sized.fontSize = 500
-check(sized.fontSize == 96, "oversized value clamps to the largest rung (got \(sized.fontSize))")
+check(sized.fontSize == 288, "oversized value clamps to the largest rung (got \(sized.fontSize))")
 sized.increaseFontSize()
-check(sized.fontSize == 96, "⌘+ at the top stays put (got \(sized.fontSize))")
+check(sized.fontSize == 288, "⌘+ at the top stays put (got \(sized.fontSize))")
 sized.fontSize = 1
 check(sized.fontSize == 10, "undersized value clamps to the smallest rung (got \(sized.fontSize))")
 sized.decreaseFontSize()
@@ -94,6 +94,63 @@ check(reopened.fontSize == 36, "a new window opens at the saved size (got \(reop
 sized.resetFontSize()
 check(sized.fontSize == 24 && UserDefaults.standard.double(forKey: "FontSize") == 24,
       "⌘0 returns to the default and saves it")
+UserDefaults.standard.removeObject(forKey: "FontSize")
+
+// Typeface: chosen, saved at once, restored on reopen, resettable
+UserDefaults.standard.removeObject(forKey: "FontName")
+let styled = TalkWindowController(pronunciations: store)
+styled.show()
+pump(0.3)
+check(styled.font.fontName == NSFont.systemFont(ofSize: styled.fontSize).fontName,
+      "the message box starts in the system font (got \(styled.font.fontName))")
+
+styled.font = NSFont(name: "Courier", size: 18)!
+check(styled.font.fontName == "Courier" && styled.fontSize == 18,
+      "a chosen font is applied, size and all (got \(styled.font.fontName) at \(styled.fontSize))")
+check(UserDefaults.standard.string(forKey: "FontName") == "Courier",
+      "the typeface is saved without being asked")
+
+let restyled = TalkWindowController(pronunciations: store)
+check(restyled.font.fontName == "Courier" && restyled.fontSize == 18,
+      "a new window opens in the saved font (got \(restyled.font.fontName) at \(restyled.fontSize))")
+
+styled.increaseFontSize()
+check(styled.font.fontName == "Courier" && styled.fontSize == 20,
+      "⌘+ keeps the typeface (got \(styled.font.fontName) at \(styled.fontSize))")
+
+styled.font = NSFont(name: "Courier", size: 500)!
+check(styled.fontSize == 288 && styled.font.fontName == "Courier",
+      "an oversized font clamps to the top rung, typeface intact "
+        + "(got \(styled.font.fontName) at \(styled.fontSize))")
+
+// The font panel is the dialog itself: it must open on the font in use and
+// send its changes back to the window rather than straight to the text view.
+styled.showFontPanel()
+pump(0.3)
+check(NSFontManager.shared.selectedFont?.fontName == "Courier",
+      "the font panel opens on the font in use (got \(NSFontManager.shared.selectedFont?.fontName ?? "none"))")
+check(NSFontManager.shared.target as? TalkWindowController === styled,
+      "the panel's choices come back to the window")
+NSFontManager.shared.fontPanel(false)?.close()
+pump(0.2)
+
+styled.resetFont()
+check(styled.font.fontName == NSFont.systemFont(ofSize: styled.fontSize).fontName,
+      "Default Font restores the system typeface (got \(styled.font.fontName))")
+check(UserDefaults.standard.string(forKey: "FontName") == nil, "Default Font forgets the saved typeface")
+check(styled.fontSize == 288, "Default Font leaves the size alone (got \(styled.fontSize))")
+
+styled.increaseFontSize()
+check(UserDefaults.standard.string(forKey: "FontName") == nil,
+      "resizing the system font saves no typeface name for it to choke on "
+        + "(got \(UserDefaults.standard.string(forKey: "FontName") ?? "none"))")
+
+// A font that is no longer installed must not leave the window unreadable.
+UserDefaults.standard.set("NoSuchFontIsInstalled", forKey: "FontName")
+let salvaged = TalkWindowController(pronunciations: store)
+check(salvaged.font.fontName == NSFont.systemFont(ofSize: salvaged.fontSize).fontName,
+      "a missing saved font falls back to the system font (got \(salvaged.font.fontName))")
+UserDefaults.standard.removeObject(forKey: "FontName")
 UserDefaults.standard.removeObject(forKey: "FontSize")
 
 // Speed: saved at once, restored on reopen, resettable
@@ -185,6 +242,8 @@ for character in ["h", "i", " "] {
     typed.keyDown(with: key)
 }
 check(clicks == 3, "every keystroke reaches the click hook (got \(clicks))")
+check(typed.responds(to: #selector(TalkTextView.validModesForFontPanel(_:))),
+      "the text view answers the font panel, so its colour and effect controls stay out")
 check(typed.string == "hi ", "the keystrokes still reach the text (got \(typed.string.debugDescription))")
 
 // Pronunciation editor

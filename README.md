@@ -30,6 +30,7 @@ sources as one module.
 | ⌘D | Open the pronunciation dictionary |
 | ⌘+ / ⌘- | Bigger / smaller text |
 | ⌘0 | Back to the default text size |
+| ⌘T | Open the font panel |
 | ⌥⌘0 | Back to the default speaking speed |
 
 When an utterance finishes, the whole message is highlighted, so the next
@@ -38,8 +39,20 @@ keystroke replaces it. Cancelling with Esc leaves the text alone.
 The pop-up at the top picks the voice; personal voices come first, then voices
 in your own languages, then the rest. The slider next to it sets the speaking
 speed; **Speech ▸ Default Speed** (⌥⌘0) puts it back where the synthesizer
-started, which is the way out of a slider nudged by accident. The text size follows ⌘+ and ⌘- through a ladder of sizes from 10 to 96
+started, which is the way out of a slider nudged by accident. The text size follows ⌘+ and ⌘- through a ladder of sizes from 10 to 288
 points.
+
+**View ▸ Show Fonts…** (⌘T) opens the standard macOS font panel on whatever
+font the message box is using; picking a typeface or a size there changes the
+box at once. Only the collection, typeface and size parts of the panel apply —
+its colour and effect controls are switched off, because the colours belong to
+the menu items below. **View ▸ Default Font** puts the typeface back to the
+system font and leaves the size where it is.
+
+A typeface is remembered by name, so a font that is later uninstalled falls back
+to the system font instead of leaving the box unreadable. The system font itself
+is not stored by name — macOS does not hand its private names back — so choosing
+a system-font variant such as bold lasts for the session but not past a relaunch.
 
 **View ▸ Text Color…** and **View ▸ Background Color…** open the colour picker;
 the message box follows the picker as you drag. **View ▸ Default Colors** goes
@@ -47,8 +60,8 @@ back to the system colours, which track light and dark mode. The post-speech
 highlight is drawn as inverse video — background in the text colour, text in the
 background colour — so it stays readable whatever pair you pick.
 
-Voice, speed, text size and colours are all saved the moment they change and come
-back next launch.
+Voice, speed, typeface, text size and colours are all saved the moment they
+change and come back next launch.
 
 **Speech ▸ Click on Key Press** makes each keystroke click, for typists who want
 the feedback. Off unless you turn it on, and remembered.
