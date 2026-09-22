@@ -56,6 +56,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = appMenu
         main.addItem(appItem)
 
+        let fileItem = NSMenuItem()
+        let fileMenu = NSMenu(title: "File")
+        for (title, selector, key, modifiers) in [
+            ("New Message", #selector(TalkWindowController.newDocument(_:)), "n", NSEvent.ModifierFlags.command),
+            ("Open…", #selector(TalkWindowController.openDocument(_:)), "o", .command),
+            ("Save", #selector(TalkWindowController.saveDocument(_:)), "s", .command),
+            ("Save As…", #selector(TalkWindowController.saveDocumentAs(_:)), "S", [.command, .shift]),
+        ] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = target
+            fileMenu.addItem(item)
+        }
+        fileItem.submenu = fileMenu
+        main.addItem(fileItem)
+
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")

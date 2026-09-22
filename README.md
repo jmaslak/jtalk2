@@ -27,6 +27,10 @@ sources as one module.
 | Esc | Stop speaking immediately |
 | ⌘. | Stop speaking |
 | ⌘Return | Speak |
+| ⌘N | Start a new, empty message |
+| ⌘O | Open a text file |
+| ⌘S | Save the message |
+| ⇧⌘S | Save the message as a new file |
 | ⌘D | Open the pronunciation dictionary |
 | ⌘+ / ⌘- | Bigger / smaller text |
 | ⌘0 | Back to the default text size |
@@ -74,6 +78,23 @@ Sound ▸ *Play user interface sound effects*. The engine only starts once you t
 clicks on. If the sound cannot be loaded the menu item is disabled rather than
 quietly doing nothing.
 
+## Files
+
+**File ▸ Open…** (⌘O) reads a text file into the message box and leaves the
+caret at the end of the text, ready to carry on typing. **File ▸ Save**
+(⌘S) writes it back out as UTF-8. ⌘S on a message that has never been saved asks
+where to put it, as **File ▸ Save As…** (⇧⌘S) always does. The title bar names
+the file the message came from; **File ▸ New Message** (⌘N) empties the box and
+forgets it.
+
+A file is read as UTF-8 first, then in whatever encoding macOS can work out from
+the bytes, then as Windows-1252, which covers an older Western text file the
+guess gives up on. A file that is none of those — something that is not text at
+all — is refused rather than poured into the box as mojibake.
+
+There is no prompt about unsaved text: opening another file, starting a new
+message or quitting throws the current one away.
+
 ## Personal Voice
 
 jtalk2 asks for access to your Personal Voice at launch. macOS only hands
@@ -100,6 +121,10 @@ To see what the app can actually reach:
 Matching is case-insensitive and whole-word only, so `cat` does not fire inside
 `category`. When entries overlap, the longest wins: with both `New York` and
 `New York City` in the table, "New York City" uses the longer entry.
+
+The table is listed alphabetically by word, and so is the file on disk. A row
+you add or rename stays where it is until you close and reopen the window, so
+the row you are typing in does not move out from under you mid-edit.
 
 Entries are stored as JSON, editable by hand:
 

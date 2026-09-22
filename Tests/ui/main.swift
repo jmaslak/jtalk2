@@ -246,6 +246,73 @@ check(typed.responds(to: #selector(TalkTextView.validModesForFontPanel(_:))),
       "the text view answers the font panel, so its colour and effect controls stay out")
 check(typed.string == "hi ", "the keystrokes still reach the text (got \(typed.string.debugDescription))")
 
+// Files: the message goes out to disk and comes back
+let docs = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("jtalk2-files-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+let filed = TalkWindowController(pronunciations: store)
+filed.show()
+pump(0.3)
+check(filed.documentURL == nil && filed.title == "JTalk2",
+      "an untitled message has no file and the app's own title (got \(filed.title))")
+
+let letter = docs.appendingPathComponent("letter.txt")
+filed.message = "please pass the salt"
+check(filed.save(to: letter) == nil, "saving reports no problem")
+check((try? String(contentsOf: letter, encoding: .utf8)) == "please pass the salt",
+      "the message is on disk as it was typed")
+check(filed.documentURL == letter, "the window remembers the file it was saved to")
+check(filed.title == "letter.txt", "the title bar names the file (got \(filed.title))")
+
+filed.message = "please pass the pepper"
+filed.saveDocument(nil)
+pump(0.2)
+check((try? String(contentsOf: letter, encoding: .utf8)) == "please pass the pepper",
+      "⌘S writes back to the same file without asking where")
+
+let other = docs.appendingPathComponent("other.txt")
+try? "hello from a file".write(to: other, atomically: true, encoding: .utf8)
+let opened = TalkWindowController(pronunciations: store)
+opened.show()
+pump(0.3)
+check(opened.load(from: other) == nil, "loading reports no problem")
+check(opened.message == "hello from a file",
+      "the file's text is in the message box (got \(opened.message.debugDescription))")
+check(opened.highlightedRange == NSRange(location: 17, length: 0),
+      "an opened file leaves the caret after the last character, nothing highlighted")
+check(opened.documentURL == other && opened.title == "other.txt",
+      "the opened file names the window (got \(opened.title))")
+
+opened.newDocument(nil)
+check(opened.message.isEmpty && opened.documentURL == nil && opened.title == "JTalk2",
+      "New Message empties the box and forgets the file")
+
+// Text files are not all UTF-8; one that is not must still open.
+let latin = docs.appendingPathComponent("latin1.txt")
+try? "caf\u{e9} au lait".data(using: .isoLatin1)!.write(to: latin)
+check(opened.load(from: latin) == nil, "a file that is not UTF-8 still opens")
+check(opened.message == "café au lait", "its text comes through (got \(opened.message.debugDescription))")
+check(opened.highlightedRange == NSRange(location: 12, length: 0),
+      "the caret counts the accented character once (got \(opened.highlightedRange))")
+
+// But a file that is not text at all should be refused, not shown as mojibake.
+let binary = docs.appendingPathComponent("noise.bin")
+try? Data((0...255).map { UInt8($0) }).write(to: binary)
+check(opened.load(from: binary) != nil, "a file that is not text is refused")
+check(opened.message == "café au lait", "a refused file leaves the message alone")
+
+opened.message = "still here"
+check(opened.load(from: docs.appendingPathComponent("not-here.txt")) != nil,
+      "opening a file that is not there reports a problem")
+check(opened.message == "still here", "a failed open leaves the message alone")
+
+let claimed = opened.documentURL
+check(opened.save(to: URL(fileURLWithPath: "/no-such-directory/message.txt")) != nil,
+      "saving where it cannot write reports a problem")
+check(opened.documentURL == claimed, "a failed save does not claim the file")
+
+try? FileManager.default.removeItem(at: docs)
+
 // Pronunciation editor
 let editor = PronunciationWindow(store: store)
 editor.show()

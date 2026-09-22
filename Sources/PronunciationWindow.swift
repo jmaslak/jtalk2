@@ -1,5 +1,6 @@
 // The pronunciation dictionary editor: a small table of word / pronunciation
-// rows. Edits are written to disk as soon as a field loses focus.
+// rows, listed alphabetically. Edits are written to disk as soon as a field
+// loses focus.
 
 import AppKit
 
@@ -30,6 +31,11 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
         window.isReleasedWhenClosed = false
     }
 
+    /// The store hands back its entries in alphabetical order. The table is
+    /// only re-ordered here, on opening: a row that jumped to its new place
+    /// the moment you finished typing a word would take the next field you
+    /// were tabbing to with it. A row added or renamed now is in order the
+    /// next time the window opens.
     func show() {
         rows = store.entries
         tableView.reloadData()
@@ -147,6 +153,9 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
                              columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
     }
 
+    /// Adds a blank row at the bottom, where it stays until the window is
+    /// reopened, rather than where it will eventually sort to — an empty word
+    /// sorts to the top, away from the button that made it.
     @objc func addRow() {
         // Commit any in-progress edit before the row indexes move.
         window.makeFirstResponder(tableView)

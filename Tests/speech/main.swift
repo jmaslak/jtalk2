@@ -56,6 +56,34 @@ check(store.replaceAll([
     Pronunciation(word: "alsoignored", say: "   "),
 ]) == nil, "dictionary saved without error")
 
+// The list is kept in alphabetical order, whatever order it arrived in.
+let order = store.entries.map(\.word)
+check(order == ["  ", "alsoignored", "C++", "jmaslak", "New York", "New York City", "tomato"],
+      "entries are sorted by word, ignoring case (got \(order))")
+check(store.entries.count == 7, "sorting keeps every entry (\(store.entries.count))")
+
+// Case is not a sort key of its own: entries that differ only in case land
+// next to each other rather than in two separate runs of the alphabet.
+let cased = PronunciationStore(fileURL: tmp.deletingLastPathComponent()
+    .appendingPathComponent("cased.json"))
+cased.replaceAll([
+    Pronunciation(word: "ok", say: "okay"),
+    Pronunciation(word: "Zebra", say: "zeb ra"),
+    Pronunciation(word: "OK", say: "all right"),
+    Pronunciation(word: "apple", say: "ay pull"),
+])
+check(cased.entries.map(\.word) == ["apple", "ok", "OK", "Zebra"],
+      "case sorts together, not apart (got \(cased.entries.map(\.word)))")
+
+// The same word written the same way twice is ordered by what it says, so the
+// order does not depend on which one arrived first.
+cased.replaceAll([
+    Pronunciation(word: "ok", say: "okay"),
+    Pronunciation(word: "ok", say: "all right"),
+])
+check(cased.entries.map(\.say) == ["all right", "okay"],
+      "duplicate words are ordered by what they say (got \(cased.entries.map(\.say)))")
+
 check(store.apply(to: "hi jmaslak").string == "hi jay maslak", "plain substitution")
 check(store.apply(to: "hi JMASLAK!").string == "hi jay maslak!", "substitution is case-insensitive")
 check(store.apply(to: "jmaslakson stays").string == "jmaslakson stays", "only whole words match")
@@ -75,6 +103,7 @@ check(ipaRange == NSRange(location: 2, length: 6), "IPA attribute covers exactly
 // persistence round trip
 let reloaded = PronunciationStore(fileURL: tmp)
 check(reloaded.entries.count == 7, "entries survive a reload (\(reloaded.entries.count))")
+check(reloaded.entries.map(\.word) == order, "a reloaded dictionary is in the same order")
 check(reloaded.apply(to: "hi jmaslak").string == "hi jay maslak", "reloaded dictionary still applies")
 
 // corrupt file handling

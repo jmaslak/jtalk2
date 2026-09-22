@@ -54,7 +54,7 @@ final class PronunciationStore {
         }
         do {
             let data = try Data(contentsOf: url)
-            entries = try JSONDecoder().decode([Pronunciation].self, from: data)
+            entries = Self.sorted(try JSONDecoder().decode([Pronunciation].self, from: data))
         } catch {
             entries = []
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -71,7 +71,7 @@ final class PronunciationStore {
     /// on failure so the caller can show it.
     @discardableResult
     func replaceAll(_ newEntries: [Pronunciation]) -> String? {
-        entries = newEntries
+        entries = Self.sorted(newEntries)
         rebuild()
 
         let url = fileURL
@@ -84,6 +84,21 @@ final class PronunciationStore {
             return nil
         } catch {
             return "Could not save \(url.path): \(error.localizedDescription)"
+        }
+    }
+
+    /// The dictionary is kept in alphabetical order, so both the editor and
+    /// the file on disk read as a list you can find a word in. Sorting is the
+    /// same as the Finder's, so case does not split a word from its other
+    /// spelling; a word listed twice is ordered by what it says, rather than
+    /// by which copy happened to be saved first.
+    private static func sorted(_ unsorted: [Pronunciation]) -> [Pronunciation] {
+        unsorted.sorted {
+            switch $0.word.localizedStandardCompare($1.word) {
+            case .orderedAscending: return true
+            case .orderedDescending: return false
+            case .orderedSame: return $0.say.localizedStandardCompare($1.say) == .orderedAscending
+            }
         }
     }
 

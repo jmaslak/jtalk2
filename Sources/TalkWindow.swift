@@ -3,6 +3,7 @@
 
 import AppKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - Text view
 
@@ -67,6 +68,21 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     let pronunciations: PronunciationStore
     private lazy var pronunciationWindow = PronunciationWindow(store: pronunciations)
 
+    /// Untitled messages show this, so the window is never nameless.
+    private static let untitled = "JTalk2"
+
+    /// The file the message was last read from or written to. ⌘S writes back
+    /// to it; until there is one, ⌘S asks where to put the text.
+    private(set) var documentURL: URL? {
+        didSet {
+            window.representedURL = documentURL
+            window.title = documentURL?.lastPathComponent ?? Self.untitled
+        }
+    }
+
+    /// What the title bar says. Exposed for tests.
+    var title: String { window.title }
+
     /// The text in the message box. The setter exists for tests.
     var message: String {
         get { textView.string }
@@ -85,7 +101,7 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
             defer: false)
         super.init()
 
-        window.title = "JTalk2"
+        window.title = Self.untitled
         window.delegate = self
         window.setFrameAutosaveName("TalkWindow")
         window.contentView = buildContentView()
@@ -475,6 +491,103 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
 
     @objc private func rateChanged() {
         UserDefaults.standard.set(Float(rateSlider.doubleValue), forKey: Self.rateKey)
+    }
+
+    // MARK: Files
+
+    /// Text files come in more than one encoding: what almost everything is
+    /// written in now, then whatever macOS can work out from the bytes, then
+    /// the old Western default, which reads a plain Latin-1 file that the
+    /// guess gives up on. Anything that is none of those — a binary file
+    /// picked by mistake — is refused rather than shown as mojibake.
+    private static func readText(at url: URL) throws -> String {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            var encoding = String.Encoding.utf8
+            if let text = try? String(contentsOf: url, usedEncoding: &encoding) { return text }
+            if let text = try? String(contentsOf: url, encoding: .windowsCP1252) { return text }
+            throw error
+        }
+    }
+
+    /// Replaces the message with a file's contents. Returns what went wrong,
+    /// or nil if the file was read.
+    @discardableResult
+    func load(from url: URL) -> String? {
+        let text: String
+        do {
+            text = try Self.readText(at: url)
+        } catch {
+            return error.localizedDescription
+        }
+        message = text
+        let end = NSRange(location: (text as NSString).length, length: 0)
+        textView.setSelectedRange(end)
+        textView.scrollRangeToVisible(end)
+        documentURL = url
+        window.makeFirstResponder(textView)
+        return nil
+    }
+
+    /// Writes the message out as UTF-8. Returns what went wrong, or nil if it
+    /// was written.
+    @discardableResult
+    func save(to url: URL) -> String? {
+        do {
+            try message.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            return error.localizedDescription
+        }
+        documentURL = url
+        return nil
+    }
+
+    /// An empty, untitled message. The old text is gone, as it is when you
+    /// type over a spoken message.
+    @objc func newDocument(_ sender: Any?) {
+        message = ""
+        documentURL = nil
+        window.makeFirstResponder(textView)
+    }
+
+    @objc func openDocument(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.allowsMultipleSelection = false
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            if let problem = self.load(from: url) {
+                self.report("Could not open \(url.lastPathComponent)", problem)
+            }
+        }
+    }
+
+    @objc func saveDocument(_ sender: Any?) {
+        guard let url = documentURL else { return saveDocumentAs(sender) }
+        if let problem = save(to: url) {
+            report("Could not save \(url.lastPathComponent)", problem)
+        }
+    }
+
+    @objc func saveDocumentAs(_ sender: Any?) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = documentURL?.lastPathComponent ?? "Message.txt"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            if let problem = self.save(to: url) {
+                self.report("Could not save \(url.lastPathComponent)", problem)
+            }
+        }
+    }
+
+    private func report(_ what: String, _ problem: String) {
+        let alert = NSAlert()
+        alert.messageText = what
+        alert.informativeText = problem
+        alert.alertStyle = .warning
+        alert.beginSheetModal(for: window)
     }
 
     // MARK: Actions
