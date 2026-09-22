@@ -74,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
+        // No target: NSWindow answers undo: and redo: for whichever window is
+        // key, undoing what was last changed in it — the message box in the
+        // main window, a cell in the pronunciation table — and names the step
+        // in the menu.
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
         editMenu.addItem(.separator())

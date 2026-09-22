@@ -27,6 +27,7 @@ sources as one module.
 | Esc | Stop speaking immediately |
 | ⌘. | Stop speaking |
 | ⌘Return | Speak |
+| ⌘Z / ⇧⌘Z | Undo / redo |
 | ⌘N | Start a new, empty message |
 | ⌘O | Open a text file |
 | ⌘S | Save the message |
@@ -39,6 +40,15 @@ sources as one module.
 
 When an utterance finishes, the whole message is highlighted, so the next
 keystroke replaces it. Cancelling with Esc leaves the text alone.
+
+⌘Z takes back whatever last changed the message box — typing, including
+typing over the message speaking left highlighted, opening a file, or emptying
+the box with ⌘N — and ⇧⌘Z puts it back. Opening a file and ⌘N each count as one step, and take
+the window's title with them, so undoing an Open leaves ⌘S writing back to the
+file the text actually came from. Edit ▸ Undo names the step it would take
+back. The font, colours and speaking speed are settings rather than edits, and
+are not on the undo stack; **View ▸ Default Font** and the other defaults are
+the way back from those.
 
 The pop-up at the top picks the voice; personal voices come first, then voices
 in your own languages, then the rest. The slider next to it sets the speaking
@@ -126,6 +136,16 @@ The table is listed alphabetically by word, and so is the file on disk. A row
 you add or rename stays where it is until you close and reopen the window, so
 the row you are typing in does not move out from under you mid-edit.
 
+The − button deletes without asking and writes the change straight to disk, so
+⌘Z is the way back: adding a row, removing rows and ticking IPA all undo.
+Text typed into a cell is undone by ⌘Z while the cell is still open, as in any
+text field.
+
+That history belongs to this window and lasts as long as it is open. ⌘Z in the
+message box never reaches into the dictionary, and closing the editor throws its
+history away, so reopening it starts with nothing to undo. The dictionary itself
+is on disk either way.
+
 Entries are stored as JSON, editable by hand:
 
     ~/Library/Application Support/jtalk2/pronunciations.json
@@ -136,7 +156,8 @@ overwriting it.
 
 ## Tests
 
-`Tests/speech` covers the dictionary, the voice grouping, Personal Voice access
-and the synthesizer callbacks. `Tests/ui` builds the real windows and checks
-that speaking highlights the message and that cancelling does not. Both link the
-shipping sources.
+`Tests/speech` covers the dictionary, its ordering, the voice grouping, Personal
+Voice access and the synthesizer callbacks. `Tests/ui` builds the real windows
+and checks that speaking highlights the message, that cancelling does not, and
+that undo and redo take back typing, opened files and a cleared box. Both link
+the shipping sources.

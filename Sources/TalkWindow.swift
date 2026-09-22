@@ -83,11 +83,16 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
     /// What the title bar says. Exposed for tests.
     var title: String { window.title }
 
-    /// The text in the message box. The setter exists for tests.
+    /// The text in the message box. The setter exists for tests, and goes
+    /// through the undo manager as everything else that rewrites the box does.
     var message: String {
         get { textView.string }
-        set { textView.string = newValue }
+        set { replaceMessage(with: newValue) }
     }
+
+    /// The message box itself, so tests can send it real keystrokes and reach
+    /// the undo manager the Edit menu talks to.
+    var messageView: NSTextView { textView }
 
     /// What is highlighted in the message box.
     var highlightedRange: NSRange { textView.selectedRange() }
@@ -493,6 +498,45 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         UserDefaults.standard.set(Float(rateSlider.doubleValue), forKey: Self.rateKey)
     }
 
+    // MARK: Editing
+
+    /// Replaces the whole message as one undoable change. Assigning
+    /// `textView.string` instead would rewrite the box behind the undo
+    /// manager's back, leaving ⌘Z to put back text that is no longer there.
+    /// The attributes come from the box itself, so the replacement keeps the
+    /// chosen font and colours.
+    private func replaceMessage(with text: String) {
+        let whole = NSRange(location: 0, length: (textView.string as NSString).length)
+        guard textView.shouldChangeText(in: whole, replacementString: text) else { return }
+        textView.textStorage?.replaceCharacters(
+            in: whole,
+            with: NSAttributedString(string: text, attributes: textView.typingAttributes))
+        textView.didChangeText()
+    }
+
+    /// Changes which file the message belongs to, undoably. The file is part
+    /// of the edit: undoing an Open has to put back the old title, and with it
+    /// the file ⌘S writes to, or the recovered text would be saved over the
+    /// wrong one. Saving is not an edit, so `save(to:)` sets it directly.
+    private func setDocumentURL(_ url: URL?) {
+        guard url != documentURL else { return }
+        let previous = documentURL
+        textView.undoManager?.registerUndo(withTarget: self) { controller in
+            controller.setDocumentURL(previous)
+        }
+        documentURL = url
+    }
+
+    /// Runs `body` as a single step in the undo menu, so one ⌘Z takes back
+    /// both the text and the file it came from rather than one of them.
+    private func asOneEdit(named name: String, _ body: () -> Void) {
+        guard let undo = textView.undoManager else { return body() }
+        undo.beginUndoGrouping()
+        body()
+        undo.setActionName(name)
+        undo.endUndoGrouping()
+    }
+
     // MARK: Files
 
     /// Text files come in more than one encoding: what almost everything is
@@ -521,11 +565,13 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         } catch {
             return error.localizedDescription
         }
-        message = text
+        asOneEdit(named: "Open \(url.lastPathComponent)") {
+            replaceMessage(with: text)
+            setDocumentURL(url)
+        }
         let end = NSRange(location: (text as NSString).length, length: 0)
         textView.setSelectedRange(end)
         textView.scrollRangeToVisible(end)
-        documentURL = url
         window.makeFirstResponder(textView)
         return nil
     }
@@ -543,12 +589,15 @@ final class TalkWindowController: NSObject, NSWindowDelegate, NSMenuItemValidati
         return nil
     }
 
-    /// An empty, untitled message. The old text is gone, as it is when you
-    /// type over a spoken message.
+    /// An empty, untitled message. The old text is not gone for good: ⌘Z
+    /// brings it back, along with the file it belonged to.
     @objc func newDocument(_ sender: Any?) {
-        message = ""
-        documentURL = nil
         window.makeFirstResponder(textView)
+        guard !message.isEmpty || documentURL != nil else { return }
+        asOneEdit(named: "New Message") {
+            replaceMessage(with: "")
+            setDocumentURL(nil)
+        }
     }
 
     @objc func openDocument(_ sender: Any?) {

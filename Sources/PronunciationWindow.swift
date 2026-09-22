@@ -4,7 +4,8 @@
 
 import AppKit
 
-final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+final class PronunciationWindow: NSObject, NSWindowDelegate, NSTableViewDataSource,
+                                 NSTableViewDelegate, NSTextFieldDelegate {
     private enum Column: String {
         case word, say, ipa
     }
@@ -24,12 +25,18 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
             defer: false)
         super.init()
 
+        window.delegate = self
         window.title = "Pronunciations"
         window.setFrameAutosaveName("PronunciationWindow")
         window.minSize = NSSize(width: 380, height: 200)
         window.contentView = buildContentView()
         window.isReleasedWhenClosed = false
     }
+
+    /// The editor's own undo manager, separate from the main window's. Exposed
+    /// for tests; ⌘Z finds it on its own, and only while this window is the
+    /// one being typed in.
+    var undoManager: UndoManager? { window.undoManager }
 
     /// The store hands back its entries in alphabetical order. The table is
     /// only re-ordered here, on opening: a row that jumped to its new place
@@ -42,6 +49,17 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
         window.center()
         window.setFrameUsingName("PronunciationWindow")
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Closes the editor, as its own close button does.
+    func close() { window.close() }
+
+    /// Undo here reaches back over rows that are no longer on screen, so the
+    /// history is the window's own: closing it throws the history away rather
+    /// than leaving ⌘Z in a reopened editor undoing something from before.
+    /// The dictionary itself is already on disk either way.
+    func windowWillClose(_ notification: Notification) {
+        window.undoManager?.removeAllActions()
     }
 
     // MARK: Layout
@@ -147,10 +165,26 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
     @objc private func ipaToggled(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard rows.indices.contains(row) else { return }
-        rows[row].isIPA = sender.state == .on
+        var changed = rows
+        changed[row].isIPA = sender.state == .on
+        setRows(changed, named: "Change IPA")
+    }
+
+    /// Adding and removing rows are undoable as a whole list. The table is
+    /// small, so putting back the list that was there beats replaying a
+    /// removal backwards, and − writes to disk on the spot: ⌘Z is the only
+    /// way back from a mis-click. Text typed into a cell is not here — the
+    /// field editor already undoes that while the cell is open, and reloading
+    /// the table under it would take the edit with it.
+    private func setRows(_ newRows: [Pronunciation], named name: String) {
+        let previous = rows
+        window.undoManager?.registerUndo(withTarget: self) { editor in
+            editor.setRows(previous, named: name)
+        }
+        window.undoManager?.setActionName(name)
+        rows = newRows
         save()
-        tableView.reloadData(forRowIndexes: IndexSet(integer: row),
-                             columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+        tableView.reloadData()
     }
 
     /// Adds a blank row at the bottom, where it stays until the window is
@@ -159,9 +193,7 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
     @objc func addRow() {
         // Commit any in-progress edit before the row indexes move.
         window.makeFirstResponder(tableView)
-        rows.append(Pronunciation())
-        save()
-        tableView.reloadData()
+        setRows(rows + [Pronunciation()], named: "Add Word")
         let row = rows.count - 1
         tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         tableView.scrollRowToVisible(row)
@@ -172,9 +204,9 @@ final class PronunciationWindow: NSObject, NSTableViewDataSource, NSTableViewDel
         window.makeFirstResponder(tableView)
         let selected = tableView.selectedRowIndexes
         guard !selected.isEmpty else { return }
-        rows.remove(atOffsets: IndexSet(selected))
-        save()
-        tableView.reloadData()
+        var remaining = rows
+        remaining.remove(atOffsets: IndexSet(selected))
+        setRows(remaining, named: selected.count == 1 ? "Remove Word" : "Remove Words")
     }
 
     private func save() {

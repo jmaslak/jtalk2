@@ -207,6 +207,8 @@ recolored.message = "highlight me"
 recolored.speak()
 pump(6)
 check(recolored.highlightedRange.length == 12, "speaking still highlights with custom colors")
+check(recolored.textColor == yellow,
+      "replacing the message keeps the chosen text color (got \(recolored.textColor))")
 
 colored.resetColors()
 check(colored.textColor == NSColor.textColor && colored.backgroundColor == NSColor.textBackgroundColor,
@@ -313,6 +315,112 @@ check(opened.documentURL == claimed, "a failed save does not claim the file")
 
 try? FileManager.default.removeItem(at: docs)
 
+// Undo: typing, opening a file and clearing the box all come back.
+func typeInto(_ view: NSTextView, _ text: String) {
+    for character in text.map(String.init) {
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                   windowNumber: 0, context: nil, characters: character,
+                                   charactersIgnoringModifiers: character, isARepeat: false, keyCode: 4)!
+        view.keyDown(with: key)
+    }
+}
+
+// The Edit menu sends undo: to no particular target, so it has to find a
+// handler by walking the responder chain out of the message box.
+func chainHandles(_ selector: Selector, from start: NSResponder?) -> Bool {
+    var responder = start
+    while let current = responder {
+        if current.responds(to: selector) { return true }
+        if let helper = current.supplementalTarget(forAction: selector, sender: nil),
+           (helper as AnyObject).responds(to: selector) { return true }
+        responder = current.nextResponder
+    }
+    return false
+}
+
+let undoable = TalkWindowController(pronunciations: store)
+undoable.show()
+pump(0.3)
+let undo = undoable.messageView.undoManager
+check(undo != nil, "the message box has an undo manager")
+check(chainHandles(Selector(("undo:")), from: undoable.messageView),
+      "Edit ▸ Undo finds a handler from the message box")
+check(chainHandles(Selector(("redo:")), from: undoable.messageView),
+      "Edit ▸ Redo finds a handler from the message box")
+
+typeInto(undoable.messageView, "hello")
+pump(0.3)
+check(undoable.message == "hello", "the keystrokes reached the box (got \(undoable.message.debugDescription))")
+undo?.undo()
+pump(0.2)
+check(undoable.message.isEmpty, "undo takes the typing back (got \(undoable.message.debugDescription))")
+undo?.redo()
+pump(0.2)
+check(undoable.message == "hello", "redo puts the typing back (got \(undoable.message.debugDescription))")
+
+let undoDocs = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("jtalk2-undo-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: undoDocs, withIntermediateDirectories: true)
+let note = undoDocs.appendingPathComponent("note.txt")
+try? "from the file".write(to: note, atomically: true, encoding: .utf8)
+
+// The Edit menu has to say what it would take back, and go grey when there is
+// nothing left to.
+let undoItem = NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+
+check(undoable.load(from: note) == nil, "the file opened")
+pump(0.2)
+check(undoable.message == "from the file" && undoable.title == "note.txt",
+      "the file replaced the message and named the window")
+let mainWindow = undoable.messageView.window
+check(mainWindow?.validateMenuItem(undoItem) == true, "Undo is live with an edit to take back")
+check(undoItem.title.contains("Open note.txt"),
+      "the menu names the edit it would undo (got \(undoItem.title))")
+undo?.undo()
+pump(0.2)
+check(undoable.message == "hello", "undo puts back the text the file replaced (got \(undoable.message.debugDescription))")
+check(undoable.documentURL == nil && undoable.title == "JTalk2",
+      "undo forgets the file too, so ⌘S does not write over it (got \(undoable.title))")
+undo?.redo()
+pump(0.2)
+check(undoable.message == "from the file" && undoable.title == "note.txt",
+      "redo opens the file again, title and all (got \(undoable.title))")
+
+undoable.newDocument(nil)
+pump(0.2)
+check(undoable.message.isEmpty && undoable.documentURL == nil, "New Message empties the box")
+undo?.undo()
+pump(0.2)
+check(undoable.message == "from the file" && undoable.title == "note.txt",
+      "undo brings back a cleared message and its file (got \(undoable.message.debugDescription))")
+
+// Nothing to clear: New Message must not leave a step that undoes nothing.
+undoable.newDocument(nil)
+pump(0.2)
+undoable.newDocument(nil)
+pump(0.2)
+undo?.undo()
+pump(0.2)
+check(undoable.message == "from the file",
+      "a second New Message on an empty box adds no empty undo step (got \(undoable.message.debugDescription))")
+
+// The font survives a replacement, which carries the box's own attributes.
+undoable.font = NSFont.systemFont(ofSize: 24)
+undoable.message = "sized text"
+pump(0.2)
+check(undoable.messageView.font?.pointSize == 24,
+      "replacing the message keeps the chosen font (got \(undoable.messageView.font?.pointSize ?? 0))")
+
+while undo?.canUndo == true { undo?.undo() }
+pump(0.2)
+check(mainWindow?.validateMenuItem(undoItem) == false,
+      "Undo goes grey once everything has been taken back")
+check(mainWindow?.validateMenuItem(redoItem) == true,
+      "Redo is live once something has been undone")
+
+try? FileManager.default.removeItem(at: undoDocs)
+
 // Pronunciation editor
 let editor = PronunciationWindow(store: store)
 editor.show()
@@ -324,6 +432,33 @@ check(store.entries.count == 3, "adding a row saved a new entry (\(store.entries
 editor.removeSelectedRows()  // addRow() leaves the new row selected
 pump(0.3)
 check(store.entries.count == 2, "removing a row saved the change (\(store.entries.count))")
+
+// The − button writes to disk on the spot, so ⌘Z has to be able to undo it.
+editor.undoManager?.undo()
+pump(0.3)
+check(store.entries.count == 3, "undo puts a removed row back (\(store.entries.count))")
+editor.undoManager?.undo()
+pump(0.3)
+check(store.entries.count == 2, "undo again takes back the added row (\(store.entries.count))")
+editor.undoManager?.redo()
+pump(0.3)
+check(store.entries.count == 3, "redo adds it again (\(store.entries.count))")
+
+// That history belongs to the editor window, not to the app: closing it throws
+// the history away, so ⌘Z in a reopened editor cannot reach back over it.
+check(editor.undoManager?.canUndo == true, "the editor has something to undo before closing")
+check(mainWindow?.validateMenuItem(undoItem) == false,
+      "the main window's Undo is untouched by the editor's history")
+editor.close()
+pump(0.3)
+check(editor.undoManager?.canUndo == false && editor.undoManager?.canRedo == false,
+      "closing the editor forgets what it could undo and redo")
+editor.show()
+pump(0.3)
+check(editor.undoManager?.canUndo == false && editor.undoManager?.canRedo == false,
+      "a reopened editor starts with an empty undo history")
+check(store.entries.count == 3, "closing the editor changes nothing on disk (\(store.entries.count))")
+editor.close()
 
 try? FileManager.default.removeItem(at: tmp.deletingLastPathComponent())
 print(failures == 0 ? "\nALL PASS" : "\n\(failures) FAILURE(S)")
